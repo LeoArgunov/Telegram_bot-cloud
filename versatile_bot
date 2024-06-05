@@ -1,0 +1,88 @@
+from googletrans import Translator
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import Update, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.utils.executor import start_webhook
+import os
+import json
+from textblob import TextBlob
+import random
+from joke import jokes
+import requests
+
+    
+API_TOKEN = os.getenv('BOT_TOKEN')
+
+
+bot = Bot(token=API_TOKEN)
+dp = Dispatcher(bot)
+
+keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+start_button = KeyboardButton('/start')
+help_button = KeyboardButton('/help')
+joke_button = KeyboardButton('/joke')
+course_button = KeyboardButton('/course')
+keyboard.add(start_button, help_button, joke_button, course_button)
+
+
+@dp.message_handler(commands=['start'])
+async def send_welcome(message: types.Message):
+    await message.reply("Привет. \nМое имя разносторонний бот \nЯ перевожу тексты на английский, определяю тональность и могу рассказать шутку! Узнай больше в /help", reply_markup=keyboard)
+
+
+@dp.message_handler(commands=['help'])
+async def send_help(message: types.Message):
+    await message.reply("Я перевожу введенные пользователем сообщения на английский и определяю эмоциональную окраску от -1 до 1\nЕще я могу рассказать шутку, для этого используй /joke\nЧтобы узнать курс валют используй /course", reply_markup=keyboard)
+
+@dp.message_handler(commands=['joke'])
+async def send_joke(message: types.Message):
+    joke_res = random.choice(jokes)
+    await message.reply(joke_res, reply_markup=keyboard)
+
+@dp.message_handler(commands=['course'])
+async def send_course(message: types.Message):
+    data = requests.get('https://www.cbr-xml-daily.ru/daily_json.js').json()
+    usd_info = data['Valute']['USD']
+    eur_info = data['Valute']['EUR']
+
+    course_info = (
+        f"USD\n"
+        f"Название: {usd_info['Name']}\n"
+        f"Значение: {usd_info['Value']}\n"
+        f"Предыдущее значение: {usd_info['Previous']}\n\n"
+        f"EUR\n"
+        f"Название: {eur_info['Name']}\n"
+        f"Значение: {eur_info['Value']}\n"
+        f"Предыдущее значение: {eur_info['Previous']}\n"
+    )
+
+    await message.reply(course_info, reply_markup=keyboard)
+
+
+@dp.message_handler(lambda message: message.text)
+async def echo(message: types.Message):
+    translator = Translator()
+    res = translator.translate(message.text, dest ='en').text
+    blob = TextBlob(res)
+    sentiment = blob.sentiment
+
+    sentiment_text = f"Переведенный текст: {res}\n\nЭмоциональная окраска:{sentiment.polarity}"
+    await message.reply(sentiment_text, reply_markup=keyboard)
+
+async def handler(event, context):
+    message = json.loads(event['messages'][0]['details']['message']['body'])
+    
+    update = Update(**message)
+
+    Bot.set_current(bot)
+
+    await dp.process_update(update)
+
+    return {
+        'statusCode': 500,
+        'body': json.dumps(event)
+    }
+
+if __name__ == '__main__':
+    from aiogram import executor
+
+    executor.start_polling(dp, skip_updates=True)
