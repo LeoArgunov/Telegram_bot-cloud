@@ -6,8 +6,8 @@ import os
 import json
 from textblob import TextBlob
 import random
-from joke import jokes
 import requests
+import ydb
 
     
 API_TOKEN = os.getenv('BOT_TOKEN')
@@ -23,6 +23,26 @@ joke_button = KeyboardButton('/joke')
 course_button = KeyboardButton('/course')
 keyboard.add(start_button, help_button, joke_button, course_button)
 
+def create_ydb_driver():
+    driver_config = ydb.DriverConfig(
+        endpoint=os.getenv('YDB_ENDPOINT'),
+        database=os.getenv('YDB_DATABASE'),
+        credentials=ydb.iam.MetadataUrlCredentials()
+    )
+    return ydb.Driver(driver_config)
+
+driver = create_ydb_driver()
+driver.wait(fail_fast=True, timeout=5)
+
+def get_joke_from_ydb():
+    session = driver.table_client.session().create()
+    query = "SELECT joke_text FROM jokes"
+    result = session.transaction(ydb.SerializableReadWrite()).execute(query)
+    jokes = [row['joke_text'] for row in result[0].rows]
+    if jokes:
+        return random.choice(jokes)
+    return "Не удалось найти шутку, попробуйте позже."
+
 
 @dp.message_handler(commands=['start'])
 async def send_welcome(message: types.Message):
@@ -35,8 +55,8 @@ async def send_help(message: types.Message):
 
 @dp.message_handler(commands=['joke'])
 async def send_joke(message: types.Message):
-    joke_res = random.choice(jokes)
-    await message.reply(joke_res, reply_markup=keyboard)
+    joke = get_joke_from_ydb()
+    await message.reply(joke, reply_markup=keyboard)
 
 @dp.message_handler(commands=['course'])
 async def send_course(message: types.Message):
